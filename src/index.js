@@ -6,23 +6,37 @@ export default {
         return new Response("Webhook not configured", { status: 500 });
       }
 
-      const ociPayload = await request.json();
+      // 1. Check if it's a confirmation request via headers (faster)
+      const messageType = request.headers.get("x-oci-ns-messagetype");
+      const confirmationUrl = request.headers.get("x-oci-ns-confirmationurl");
 
-      // 🟢 1. Handle OCI Subscription Confirmation
-      if (ociPayload.type === "SubscriptionConfirmation") {
-        if (ociPayload.confirmationUrl) {
-          await fetch(ociPayload.confirmationUrl);
+      if (messageType === "SubscriptionConfirmation" || confirmationUrl) {
+        const targetUrl = confirmationUrl; 
+        if (targetUrl) {
+          // Trigger the GET request to Oracle's confirmation endpoint
+          await fetch(targetUrl, { method: "GET" });
+          console.log("Confirmed via Header URL:", targetUrl);
           return new Response("Subscription confirmed", { status: 200 });
         }
       }
 
-      // 🟢 2. Handle Normal Notification
-      if (ociPayload.type === "Notification") {
+      const ociPayload = await request.json();
 
-        // OCI wraps the actual alarm inside "message" as JSON string
+      // 2. Fallback: Handle confirmation via JSON body
+      if (ociPayload.type === "SubscriptionConfirmation") {
+        if (ociPayload.confirmationUrl) {
+          await fetch(ociPayload.confirmationUrl, { method: "GET" });
+          return new Response("Subscription confirmed", { status: 200 });
+        }
+      }
+
+      // 3. Handle Normal Notification
+      if (ociPayload.type === "Notification") {
         let alarmData = {};
         try {
-          alarmData = JSON.parse(ociPayload.message);
+          alarmData = typeof ociPayload.message === 'string' 
+            ? JSON.parse(ociPayload.message) 
+            : ociPayload.message;
         } catch {
           alarmData = ociPayload;
         }
@@ -44,9 +58,7 @@ export default {
 
         const discordPayload = {
           embeds: [{
-            title: isRecovery
-              ? `✅ ${alarmName} Recovered`
-              : `🚨 ${alarmName}`,
+            title: isRecovery ? `✅ ${alarmName} Recovered` : `🚨 ${alarmName}`,
             description: message,
             color: isRecovery ? 5763719 : (colorMap[severity] || 3447003),
             fields: [
@@ -54,9 +66,7 @@ export default {
               { name: "State", value: alarmState, inline: true },
               { name: "Time", value: timestamp, inline: false }
             ],
-            footer: {
-              text: "Oracle Cloud Infrastructure Monitoring"
-            }
+            footer: { text: "Oracle Cloud Infrastructure Monitoring" }
           }]
         };
 
