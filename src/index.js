@@ -13,48 +13,50 @@ export default {
       }
 
       const ociPayload = await request.json();
-      console.log("Processing Payload Type:", ociPayload.type);
 
-      // 2. The Logic: Trigger if it's a Notification OR an Alarm State Change
+      // 2. Logic: Trigger if it's an Alarm State Change or Notification
       const isAlarm = ociPayload.alarmMetaData || ociPayload.type?.includes("_TO_");
       const isNotification = ociPayload.type === "Notification";
 
       if (isAlarm || isNotification) {
         let title = ociPayload.title || "OCI Alarm";
-        let body = "No details";
         let state = ociPayload.type || "UNKNOWN";
         let severity = ociPayload.severity || "INFO";
+        let displayBody = "";
 
-        // Extract detailed info from alarmMetaData if it exists (your log format)
+        // 3. Clean up the Body Text
         if (ociPayload.alarmMetaData && ociPayload.alarmMetaData[0]) {
           const meta = ociPayload.alarmMetaData[0];
-          body = meta.alarmSummary || body;
           state = meta.status || state;
           
-          // Capture the exact memory value (78.52%)
-          if (meta.metricValues && meta.metricValues[0]) {
-             const metricEntry = Object.entries(meta.metricValues[0])[0];
-             if (metricEntry) body += `\n**Current Value:** ${metricEntry[1]}%`;
+          // Extract the raw percentage (e.g., "78.52")
+          const rawMetric = meta.metricValues?.[0] ? Object.values(meta.metricValues[0])[0] : null;
+
+          if (state === "OK") {
+            displayBody = "✅ **Memory usage has returned to normal.**";
+          } else {
+            displayBody = `🚨 **High memory spike detected.**\n**Usage:** \`${rawMetric}%\` (Peak)`;
           }
-        } else if (ociPayload.message) {
-           // Fallback for standard notifications
-           body = typeof ociPayload.message === 'string' ? ociPayload.message : JSON.stringify(ociPayload.message);
+        } else {
+          // Fallback for simple notifications
+          displayBody = typeof ociPayload.message === 'string' ? ociPayload.message : "Threshold reached.";
         }
 
         const isRecovery = state.includes("OK");
-        const color = isRecovery ? 5763719 : 15158332;
+        const color = isRecovery ? 5763719 : 15158332; // Green : Red
 
         const discordPayload = {
           embeds: [{
-            title: isRecovery ? `✅ ${title} Recovered` : `🚨 ${title}`,
-            description: body,
+            title: isRecovery ? `✅ Memory Healthy` : `🚨 High Memory Usage`,
+            description: displayBody,
             color: color,
             fields: [
               { name: "Server", value: "baity-server", inline: true },
               { name: "Severity", value: severity, inline: true },
               { name: "State", value: state, inline: true }
             ],
-            footer: { text: "OCI Monitoring | Valheim Server" }
+            footer: { text: "OCI Monitoring | Valheim Server" },
+            timestamp: new Date().toISOString()
           }]
         };
 
@@ -65,8 +67,6 @@ export default {
         });
         
         console.log("Discord notified successfully.");
-      } else {
-        console.log(`Skipping unknown type: ${ociPayload.type}`);
       }
 
       return new Response("OK", { status: 200 });
