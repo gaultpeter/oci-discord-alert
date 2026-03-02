@@ -2,70 +2,83 @@ export default {
   async fetch(request, env) {
     try {
       const webhook = env.DISCORD_WEBHOOK;
-      if (!webhook) return new Response("Webhook not configured", { status: 500 });
+      if (!webhook) {
+        return new Response("Error: DISCORD_WEBHOOK missing in Cloudflare Settings", { status: 500 });
+      }
 
-      // 1. Identify Message Type using Headers (Case-insensitive & Reliable)
+      // 1. Identify Message Type via Headers (Most Reliable)
       const messageType = request.headers.get("x-oci-ns-messagetype");
       const confirmationUrl = request.headers.get("x-oci-ns-confirmationurl");
 
-      // Handle Subscription Handshake
+      // Handle the Oracle Handshake
       if (messageType === "SubscriptionConfirmation" || confirmationUrl) {
         if (confirmationUrl) await fetch(confirmationUrl);
-        return new Response("Handshake OK", { status: 200 });
+        return new Response("Handshake Successful", { status: 200 });
       }
 
-      // 2. Parse Payload
-      const ociPayload = await request.json();
-      
-      // Handle actual Notifications
+      // 2. Parse the Body Safely
+      const rawBody = await request.text();
+      let ociPayload;
+      try {
+        ociPayload = JSON.parse(rawBody);
+      } catch (e) {
+        return new Response("Invalid JSON received", { status: 400 });
+      }
+
+      // 3. Process the Notification
       if (messageType === "Notification") {
-        // OCI uses "Message" or "message" (usually Message)
-        const rawMessage = ociPayload.Message || ociPayload.message;
+        // OCI uses "Message" (Upper Case) for the actual alarm data
+        const innerMessage = ociPayload.Message || ociPayload.message || "";
         
         let alarmData = {};
         try {
-          alarmData = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : rawMessage;
-        } catch {
-          alarmData = ociPayload;
+          // Inner message is usually a double-encoded JSON string
+          alarmData = typeof innerMessage === 'string' ? JSON.parse(innerMessage) : innerMessage;
+        } catch (e) {
+          alarmData = { body: innerMessage }; // Fallback if not JSON
         }
 
-        // Map data (handling OCI capitalization)
+        // Safe property access to prevent 500 crashes
         const alarmName = alarmData.title || alarmData.alarmName || "OCI Alert";
+        const alarmState = String(alarmData.state || "FIRING");
+        const alarmBody = String(alarmData.body || "Memory Utilization Threshold Exceeded");
         const severity = alarmData.severity || "CRITICAL";
-        const state = alarmData.state || "FIRING";
-        const body = (alarmData.body || "Memory Threshold Exceeded").substring(0, 1000);
         
-        const isRecovery = state.includes("OK");
+        const isRecovery = alarmState.toUpperCase().includes("OK");
+        const color = isRecovery ? 5763719 : 15158332; // Green : Red
 
         const discordPayload = {
           embeds: [{
             title: isRecovery ? `✅ ${alarmName} Recovered` : `🚨 ${alarmName}`,
-            description: body,
-            color: isRecovery ? 5763719 : 15158332,
+            description: alarmBody,
+            color: color,
             fields: [
               { name: "Server", value: "baity-server", inline: true },
-              { name: "Severity", value: severity, inline: true },
-              { name: "State", value: state, inline: true }
+              { name: "State", value: alarmState, inline: true },
+              { name: "Severity", value: severity, inline: true }
             ],
-            footer: { text: "OCI Monitoring | Cloudflare Worker" }
+            footer: { text: "Oracle Cloud Infrastructure Monitoring" }
           }]
         };
 
-        // 3. Hit Discord
-        await fetch(webhook, {
+        // 4. Send to Discord
+        const discordRes = await fetch(webhook, {
           method: "POST",
           headers: { 
             "Content-Type": "application/json",
-            "User-Agent": "OCI-Alert-Bot" 
+            "User-Agent": "OCI-Discord-Bot" 
           },
           body: JSON.stringify(discordPayload)
         });
+
+        return new Response("Discord Notified", { status: discordRes.status });
       }
 
-      return new Response("OK", { status: 200 });
+      return new Response("Ignored: Not a notification", { status: 200 });
 
     } catch (err) {
-      return new Response("Error: " + err.message, { status: 500 });
+      // This will now catch the error and return it so you can see it in logs
+      return new Response(`Worker Error: ${err.message}`, { status: 500 });
     }
   }
 };
