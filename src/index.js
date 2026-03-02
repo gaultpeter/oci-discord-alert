@@ -1,7 +1,11 @@
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     try {
-      const webhook = DISCORD_WEBHOOK; // set as secret in Cloudflare
+      // webhook is provided via a Workers secret bound in wrangler.toml or dashboard
+      const webhook = env.DISCORD_WEBHOOK;
+      if (!webhook) {
+        return new Response("Webhook not configured", { status: 500 });
+      }
 
       const ociPayload = await request.json();
 

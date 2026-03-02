@@ -1,0 +1,5 @@
+# ignore configuration with secrets
+wrangler.toml
+
+# node modules if any
+node_modules/
