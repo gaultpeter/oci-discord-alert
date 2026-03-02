@@ -33,9 +33,9 @@ export default {
           const rawMetric = meta.metricValues?.[0] ? Object.values(meta.metricValues[0])[0] : null;
 
           if (state === "OK") {
-            displayBody = "✅ **Memory usage has returned to normal.**";
+            displayBody = "**Memory usage has returned to normal.**";
           } else {
-            displayBody = `🚨 **High memory spike detected.**\n**Usage:** \`${rawMetric}%\` (Peak)`;
+            displayBody = `**High memory spike detected.**\n**Usage:** \`${rawMetric}%\` (Peak)`;
           }
         } else {
           // Fallback for simple notifications
@@ -47,7 +47,7 @@ export default {
 
         const discordPayload = {
           embeds: [{
-            title: isRecovery ? `✅ Memory Healthy` : `🚨 High Memory Usage`,
+            title: isRecovery ? `Memory Healthy ✅ ` : `🚨 High Memory Usage 🚨`,
             description: displayBody,
             color: color,
             fields: [
