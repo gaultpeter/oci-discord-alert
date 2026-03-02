@@ -29,7 +29,7 @@ export default {
 
         const alarmName = alarmData.title || "OCI Alarm";
         const severity = alarmData.severity || "INFO";
-        const message = alarmData.body || "No details provided";
+        const message = (alarmData.body || "No details provided").substring(0, 1000);
         const timestamp = alarmData.timestamp || new Date().toISOString();
         const alarmState = alarmData.state || "FIRING";
 
